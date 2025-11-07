@@ -112,34 +112,134 @@ pub fn Tree(comptime T: type) type {
             }
         }
 
-        //pub fn deinit(self: *self) void {
-
-        //}
-
         // removes the first occurance of a value t
-        //pub fn remove(self: *self, value: t) void {
+        pub fn remove(self: *Self, value: T) void {
+            var current = self.root;
+            var parent: ?*Node(T) = null;
 
-        //}
+            // emnpty tree
+            if (current == null) {
+                return;
+            }
 
-        pub fn inorder_traversal(self: *Self) void {
+            // tree only has root node, result is an empty tree
+            if (current.?.*.value == value and current.?.*.left_child == null and current.?.*.right_child == null) {
+                self.allocator.destroy(current.?);
+                self.root = null;
+                return;
+            }
+
+            // search the rest of the tree
+            // we return if the child node is null, since that means the value doesn't exist
+            while (true) {
+                parent = current;
+                if (current) |current_value| {
+                    // Check if we are going left or right down the tree
+                    if (current_value.*.value < value) {
+                        current = current_value.*.left_child orelse return;
+                    } else if (current_value.*.value > value) {
+                        current = current_value.*.left_child orelse return;
+                    } else if (current_value.*.value == value) {
+                        break;
+                    }
+                }
+            }
+
+            // handle node with one child
+            if (current) |node_ptr| {
+                if (node_ptr.*.left_child == null or node_ptr.*.right_child == null) {
+                    if (node_ptr.*.left_child) |left_ptr| {
+                        // left child, unwrap is safe here since we know the parent exists
+                        // if we are updating the root, do that, otherwise point to the replacement
+                        if (parent.? == current) {
+                            self.root = left_ptr;
+                        } else {
+                            parent.?.*.left_child = left_ptr;
+                        }
+                    } else if (node_ptr.*.right_child) |right_ptr| {
+                        // right child
+                        if (parent.? == current) {
+                            self.root = right_ptr;
+                        } else {
+                            parent.?.*.right_child = right_ptr;
+                        }
+                    }
+                    // handle no children, and cleanup
+                    self.allocator.destroy(current.?);
+                    return;
+                }
+            }
+
+            // handle node with 2 children
+            // we need to find the left most value on the right side of the tree
+            // https://www.algolist.net/Data_structures/Binary_search_tree/Removal
+            var replacement = current.?.right_child;
+            while (true) {
+                if (replacement) |nonopt| {
+                    if (nonopt.left_child != null) {
+                        replacement = nonopt.left_child;
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            // point the parent to the left most node on the right side
+            // of the node we are removing
+            if (parent.?.left_child.?.*.value == value) {
+                // continue to check if the root is what we are deleting
+                if (parent.? == current) {
+                    self.root = replacement;
+                } else {
+                    parent.?.left_child = replacement;
+                }
+            } else if (parent.?.left_child.?.*.value == value) {
+                if (parent.? == current) {
+                    self.root = replacement;
+                } else {
+                    parent.?.right_child = replacement;
+                }
+            }
+
+            self.allocator.destroy(current.?);
+            return;
+        }
+
+        // caller must deinit the returned array list
+        // caller must handel potential allocation failure
+        pub fn inorder_traversal(self: *Self) !std.ArrayList(T) {
             var stack = std.ArrayList(*Node(T)).empty;
+            // stack doesn't live past this scope
             defer stack.deinit(self.allocator);
+
+            var ret_val = std.ArrayList(T).empty;
+            errdefer ret_val.deinit(self.allocator);
 
             if (self.root == null) {
                 // Tree is empty
-                return;
+                return ret_val;
             }
             var current = self.root;
+            // traverse down the tree, adding the lowest values first
+            // then add current, then move right
             while (current != null or stack.items.len > 0) {
+                std.debug.print("curent: {any}\n", .{current});
+                std.debug.print("stack len: {any}\n", .{stack.items.len});
                 while (current != null) {
                     stack.append(self.allocator, current.?) catch unreachable;
+                    std.debug.print("appending {any} to stack\n", .{current.?});
                     current = current.?.left_child;
                 }
                 current = stack.pop();
-                std.debug.print("{} ", .{current.?.value});
+                // caller must deal with this potential error
+                try ret_val.append(self.allocator, current.?.*.value);
+                std.debug.print("appending {any} to ret_val\n", .{current.?.*.value});
                 current = current.?.right_child;
             }
-            std.debug.print("\n", .{});
+
+            std.debug.print("mem of ret_val: {any}", .{ret_val.items.ptr});
+            std.debug.print("length of ret_val: {any}", .{ret_val.items.len});
+            return ret_val;
         }
     };
 }
@@ -211,6 +311,50 @@ test "tree_traversals" {
     try test_tree.insert(6);
     try test_tree.insert(0);
 
-    // print tree_traversals
-    test_tree.inorder_traversal();
+    var in_order_array_list = try test_tree.inorder_traversal();
+    // we need to free this array list from the heap when the scope is over
+    // this will be leaked if not
+    defer in_order_array_list.deinit(test_tree.allocator);
+
+    // just to visually see the tree values
+    std.debug.print("Tree values printed in order: {any}", .{in_order_array_list.items});
+    std.debug.print("len of list {any}", .{in_order_array_list.items.len});
+
+    //for (1..in_order_array_list.*.items.len) |i| {
+    //    try std.testing.expectEqual(true, in_order_array_list.*.items[i - 1] < in_order_array_list.*.items[i]);
+    //}
+
+    //for (0..in_order_array_list.*.items.len) |i| {
+    //    std.debug.print("{any} ", .{in_order_array_list.*.items[i]});
+    //}
+    //std.debug.print("\n", .{});
+}
+
+test "node_removal_shallow_tree" {
+    var gp_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gp_allocator.deinit();
+    const allocator = gp_allocator.allocator();
+    var test_tree = Tree(i32).init(allocator);
+    defer test_tree.deinit();
+
+    try std.testing.expectEqual(null, test_tree.root);
+
+    try test_tree.insert(1);
+    test_tree.remove(1);
+    try std.testing.expectEqual(null, test_tree.root);
+
+    try test_tree.insert(2);
+    try test_tree.insert(3);
+    test_tree.remove(2);
+    try std.testing.expectEqual(3, test_tree.root.?.*.value);
+}
+
+test "node_removal_deep_tree" {
+    var gp_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gp_allocator.deinit();
+    const allocator = gp_allocator.allocator();
+    var test_tree = Tree(i32).init(allocator);
+    defer test_tree.deinit();
+
+    try test_tree.insert(5);
 }
