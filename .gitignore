@@ -1,8 +1,6 @@
 ./zig-cli/zig-out
-./zig-cli/.zig-cache/*
 ./zig-cli/.zig-cache
-./zig-datastructures/.zig-cache/*
 ./zig-datastructures/.zig-cache
 ./zig-playground/zig-out
 ./zig-playground/.zig-cache
-./zig-playground/.zig-cache/*
+./.zig-cache
