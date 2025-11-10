@@ -81,6 +81,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "zig_datastructures", .module = mod },
             },
         }),
+        .use_llvm = true,
     });
 
     // This declares intent for the executable to be installed into the

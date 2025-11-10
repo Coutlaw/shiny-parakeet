@@ -115,7 +115,6 @@ pub fn Tree(comptime T: type) type {
         // removes the first occurance of a value t
         pub fn remove(self: *Self, value: T) void {
             var current = self.root;
-            var parent: ?*Node(T) = null;
 
             // emnpty tree
             if (current == null) {
@@ -129,15 +128,17 @@ pub fn Tree(comptime T: type) type {
                 return;
             }
 
+            var parent: ?*Node(T) = null;
             // search the rest of the tree
             // we return if the child node is null, since that means the value doesn't exist
             while (true) {
-                parent = current;
                 if (current) |current_value| {
                     // Check if we are going left or right down the tree
-                    if (current_value.*.value < value) {
-                        current = current_value.*.left_child orelse return;
-                    } else if (current_value.*.value > value) {
+                    if (value > current_value.*.value) {
+                        parent = current;
+                        current = current_value.*.right_child orelse return;
+                    } else if (value < current_value.*.value) {
+                        parent = current;
                         current = current_value.*.left_child orelse return;
                     } else if (current_value.*.value == value) {
                         break;
@@ -179,6 +180,17 @@ pub fn Tree(comptime T: type) type {
                     if (nonopt.left_child != null) {
                         replacement = nonopt.left_child;
                     } else {
+                        // take the child values from current, so we don't loose that part of the tree
+                        replacement.?.left_child = current.?.left_child;
+
+                        // the smallest leaf could be the current value's child, means that branch of the tree dies
+                        if (replacement.?.value != current.?.right_child.?.value) {
+                            replacement.?.right_child = current.?.right_child;
+                        } else {
+                            replacement.?.right_child = null;
+                        }
+                        current.?.left_child = null;
+                        current.?.right_child = null;
                         break;
                     }
                 }
@@ -223,22 +235,15 @@ pub fn Tree(comptime T: type) type {
             // traverse down the tree, adding the lowest values first
             // then add current, then move right
             while (current != null or stack.items.len > 0) {
-                std.debug.print("curent: {any}\n", .{current});
-                std.debug.print("stack len: {any}\n", .{stack.items.len});
                 while (current != null) {
                     stack.append(self.allocator, current.?) catch unreachable;
-                    std.debug.print("appending {any} to stack\n", .{current.?});
                     current = current.?.left_child;
                 }
                 current = stack.pop();
                 // caller must deal with this potential error
                 try ret_val.append(self.allocator, current.?.*.value);
-                std.debug.print("appending {any} to ret_val\n", .{current.?.*.value});
                 current = current.?.right_child;
             }
-
-            std.debug.print("mem of ret_val: {any}", .{ret_val.items.ptr});
-            std.debug.print("length of ret_val: {any}", .{ret_val.items.len});
             return ret_val;
         }
     };
@@ -249,6 +254,10 @@ test "ptr" {
     var num: i32 = 5;
     var optptr: ?*i32 = &num;
     try std.testing.expectEqual(optptr.?.*, 5);
+
+    //num = 6;
+    optptr.?.* = 6;
+    try std.testing.expectEqual(optptr.?.*, 6);
 
     optptr = null;
     try std.testing.expectEqual(optptr, null);
@@ -317,17 +326,12 @@ test "tree_traversals" {
     defer in_order_array_list.deinit(test_tree.allocator);
 
     // just to visually see the tree values
-    std.debug.print("Tree values printed in order: {any}", .{in_order_array_list.items});
-    std.debug.print("len of list {any}", .{in_order_array_list.items.len});
+    std.debug.print("Tree values printed in order: {any}\n", .{in_order_array_list.items});
+    std.debug.print("len of list {any}\n", .{in_order_array_list.items.len});
 
-    //for (1..in_order_array_list.*.items.len) |i| {
-    //    try std.testing.expectEqual(true, in_order_array_list.*.items[i - 1] < in_order_array_list.*.items[i]);
-    //}
-
-    //for (0..in_order_array_list.*.items.len) |i| {
-    //    std.debug.print("{any} ", .{in_order_array_list.*.items[i]});
-    //}
-    //std.debug.print("\n", .{});
+    for (1..in_order_array_list.items.len) |i| {
+        try std.testing.expectEqual(true, in_order_array_list.items[i - 1] < in_order_array_list.items[i]);
+    }
 }
 
 test "node_removal_shallow_tree" {
@@ -357,4 +361,31 @@ test "node_removal_deep_tree" {
     defer test_tree.deinit();
 
     try test_tree.insert(5);
+    try test_tree.insert(3);
+    try test_tree.insert(4);
+    try test_tree.insert(1);
+    try test_tree.insert(2);
+    try test_tree.insert(8);
+    try test_tree.insert(9);
+    try test_tree.insert(6);
+    try test_tree.insert(7);
+
+    // tree would look like this
+    //          5
+    //      3       8
+    //  1   4      6     9
+    //   2          7
+
+    // confirming the tree
+    var current_tree = try test_tree.inorder_traversal();
+    std.debug.print("Tree values printed in order: {any}\n", .{current_tree.items});
+    // clean up the space
+    current_tree.deinit(test_tree.allocator);
+
+    test_tree.remove(3);
+
+    current_tree = try test_tree.inorder_traversal();
+    std.debug.print("Tree values printed in order: {any}\n", .{current_tree.items});
+    // clean up the space
+    current_tree.deinit(test_tree.allocator);
 }
